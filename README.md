@@ -29,7 +29,7 @@ Cette application analyse le profil des étudiants (filière actuelle, carrière
 
 1. **Cloner ou télécharger le projet**
 ```bash
-git clone <url-du-repository>
+git clone (https://github.com/iamfernandezkgu255/system-orientation-benin)
 cd systeme-orientation-benin
 ```
 
