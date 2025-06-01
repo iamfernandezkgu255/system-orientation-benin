@@ -13,7 +13,7 @@ class RecommendationEngine:
     """
     Moteur de recommandation utilisant l'API DeepSeek via OpenRouter.
     """
-    
+
     def __init__(self, api_key: str, knowledge_base_manager: KnowledgeBaseManager):
         self.api_key = api_key
         self.kb_manager = knowledge_base_manager
@@ -21,43 +21,44 @@ class RecommendationEngine:
         self.model = "deepseek/deepseek-chat"
         self.max_retries = 3
         self.retry_delay = 2
-    
-    def generate_recommendation(self, student_data: Dict[str, str]) -> Dict[str, Any]:
+
+    def generate_recommendation(self, student_data: Dict[str, str], mbti_profile: Optional[str] = None) -> Dict[str, Any]:
         """
         Génère une recommandation complète pour un étudiant.
-        
+
         Args:
             student_data: Données de l'étudiant
-            
+            mbti_profile: Profil MBTI optionnel de l'étudiant
+
         Returns:
             Dict[str, Any]: Recommandation structurée
         """
         try:
             # Analyser le profil de l'étudiant
             student_analysis = self._analyze_student_profile(student_data)
-            
+
             # Générer le prompt pour DeepSeek
-            prompt = self._build_deepseek_prompt(student_data, student_analysis)
-            
+            prompt = self._build_deepseek_prompt(student_data, student_analysis, mbti_profile)
+
             # Appeler l'API DeepSeek
             ai_response = self._call_deepseek_api(prompt)
-            
+
             # Structurer la réponse
-            recommendation = self._structure_recommendation(ai_response, student_analysis)
-            
+            recommendation = self._structure_recommendation(ai_response, student_analysis, mbti_profile)
+
             return recommendation
-            
+
         except Exception as e:
             logger.error(f"Erreur lors de la génération de recommandation: {str(e)}")
             return {"error": str(e)}
-    
+
     def _analyze_student_profile(self, student_data: Dict[str, str]) -> Dict[str, Any]:
         """
         Analyse le profil de l'étudiant avec la base de connaissances.
-        
+
         Args:
             student_data: Données de l'étudiant
-            
+
         Returns:
             Dict[str, Any]: Analyse du profil
         """
@@ -69,42 +70,43 @@ class RecommendationEngine:
             'alternative_careers': [],
             'secteur_recommendations': []
         }
-        
+
         # Analyser la carrière envisagée
         if analysis['carriere_envisagee']:
             metier = self.kb_manager.find_metier(analysis['carriere_envisagee'])
             if metier:
                 analysis['metier_trouve'] = metier
-                
+
                 # Analyser la compatibilité filière-métier
                 compatibility = self.kb_manager.analyze_filiere_metier_compatibility(
                     analysis['filiere_actuelle'],
                     analysis['carriere_envisagee']
                 )
                 analysis['compatibility_analysis'] = compatibility
-                
+
                 # Trouver des métiers similaires
                 similar_metiers = self.kb_manager.find_similar_metiers(metier, max_results=3)
                 analysis['alternative_careers'] = similar_metiers
-        
+
         # Recommander des secteurs porteurs
         secteurs_porteurs = self.kb_manager.get_secteurs_porteurs()
         analysis['secteur_recommendations'] = secteurs_porteurs[:3]  # Top 3 secteurs
-        
+
         return analysis
-    
-    def _build_deepseek_prompt(self, student_data: Dict[str, str], analysis: Dict[str, Any]) -> str:
+
+    def _build_deepseek_prompt(self, student_data: Dict[str, str], analysis: Dict[str, Any], mbti_profile: Optional[str] = None) -> str:
         """
         Construit le prompt pour l'API DeepSeek.
-        
+
         Args:
             student_data: Données de l'étudiant
             analysis: Analyse préliminaire
-            
+            mbti_profile: Profil MBTI optionnel
+
         Returns:
             str: Prompt structuré
         """
-        prompt = f"""Tu es un conseiller en orientation professionnelle spécialisé dans le marché du travail béninois. 
+        prompt = f"""Tu es un conseiller en orientation professionnelle spécialisé dans le marché du travail béninois.
 Analyse le profil de cet étudiant et fournis des recommandations détaillées.
 
 PROFIL ÉTUDIANT:
@@ -112,10 +114,25 @@ PROFIL ÉTUDIANT:
 - Filière actuelle: {student_data.get('Filière Actuelle', 'N/A')}
 - Carrière envisagée: {student_data.get('Carrière Envisagée', 'N/A')}
 - Lieu de naissance: {student_data.get('Lieu de Naissance', 'N/A')}
+"""
+
+        if mbti_profile and mbti_profile != "----":
+            prompt += f"""
+PROFIL DE PERSONNALITÉ (MBTI): {mbti_profile}
+Le MBTI est un outil d'évaluation psychologique qui détermine le type de personnalité d'un sujet parmi 16 types possibles.
+Voici une brève description des axes:
+- E (Extraversion) vs I (Introversion): Source d'énergie.
+- S (Sensation) vs N (Intuition): Manière de recueillir l'information.
+- T (Pensée) vs F (Sentiment): Processus de prise de décision.
+- J (Jugement) vs P (Perception): Mode d'action préféré.
+Prends en compte ce profil pour affiner tes recommandations, notamment en suggérant des environnements de travail et des types de tâches qui pourraient mieux correspondre à sa personnalité.
+"""
+
+        prompt += """
 
 CONTEXTE MARCHÉ DU TRAVAIL BÉNINOIS:
 """
-        
+
         # Ajouter les informations sur le métier envisagé
         if analysis['metier_trouve']:
             metier = analysis['metier_trouve']
@@ -130,7 +147,7 @@ MÉTIER ENVISAGÉ - {metier.nom_metier}:
 - Formations typiques: {', '.join(metier.formations_typiques)}
 - Pertinence pour le Bénin: {metier.pertinence_realites_africaines_benin}
 """
-        
+
         # Ajouter l'analyse de compatibilité
         if analysis['compatibility_analysis']:
             comp_analysis = analysis['compatibility_analysis']
@@ -140,19 +157,19 @@ ANALYSE DE COMPATIBILITÉ:
 - Formations correspondantes: {', '.join(comp_analysis['formations_matching']) if comp_analysis['formations_matching'] else 'Aucune correspondance directe'}
 - Lacunes de compétences identifiées: {', '.join(comp_analysis['competences_gaps']) if comp_analysis['competences_gaps'] else 'Aucune lacune majeure'}
 """
-        
+
         # Ajouter les alternatives
         if analysis['alternative_careers']:
             prompt += "\nMÉTIERS ALTERNATIFS SIMILAIRES:\n"
             for alt_metier in analysis['alternative_careers']:
                 prompt += f"- {alt_metier.nom_metier}: {alt_metier.description[:100]}... (Demande: {alt_metier.niveau_demande_marche})\n"
-        
+
         # Ajouter les secteurs porteurs
         if analysis['secteur_recommendations']:
             prompt += "\nSECTEURS PORTEURS AU BÉNIN:\n"
             for secteur in analysis['secteur_recommendations']:
                 prompt += f"- {secteur.nom_secteur}: {secteur.description[:100]}...\n"
-        
+
         prompt += """
 
 INSTRUCTIONS:
@@ -161,13 +178,14 @@ Fournis une analyse structurée en 4 sections:
 1. ÉVALUATION DU CHOIX INITIAL (2-3 phrases)
    - Évalue l'adéquation entre la filière actuelle et la carrière envisagée
    - Mentionne les opportunités et défis potentiels
+   - Si un profil MBTI est fourni, commente brièvement sa pertinence pour le choix initial.
 
 2. NIVEAU D'ADÉQUATION (1-2 phrases)
    - Donne une évaluation claire: Excellente/Bonne/Moyenne/Faible adéquation
    - Justifie brièvement
 
 3. CARRIÈRES ALTERNATIVES (si pertinent, 2-3 suggestions max)
-   - Suggère des alternatives uniquement si l'adéquation est moyenne/faible
+   - Suggère des alternatives uniquement si l'adéquation est moyenne/faible ou si le profil MBTI suggère d'autres pistes intéressantes.
    - Privilégie les métiers à forte demande mentionnés ci-dessus
 
 4. PARCOURS PERSONNALISÉ (5-6 points concrets)
@@ -177,20 +195,21 @@ Fournis une analyse structurée en 4 sections:
    - Conseils pour l'insertion professionnelle au Bénin
    - Opportunités d'entrepreneuriat si applicable
    - Étapes chronologiques recommandées
+   - Si un profil MBTI est fourni, suggère des adaptations du parcours ou des environnements spécifiques.
 
 Adapte tes recommandations au contexte béninois: marché local, économie numérique émergente, secteurs porteurs comme l'agro-industrie, le tourisme, et l'économie verte.
 Sois concret, pratique et encourageant.
 """
-        
+
         return prompt
-    
+
     def _call_deepseek_api(self, prompt: str) -> str:
         """
         Appelle l'API DeepSeek via OpenRouter.
-        
+
         Args:
             prompt: Prompt à envoyer
-            
+
         Returns:
             str: Réponse de l'IA
         """
@@ -200,7 +219,7 @@ Sois concret, pratique et encourageant.
             "HTTP-Referer": "https://streamlit.io",
             "X-Title": "Système Orientation Professionnelle Bénin"
         }
-        
+
         data = {
             "model": self.model,
             "messages": [
@@ -217,7 +236,7 @@ Sois concret, pratique et encourageant.
             "max_tokens": 2000,
             "top_p": 0.9
         }
-        
+
         for attempt in range(self.max_retries):
             try:
                 response = requests.post(
@@ -226,7 +245,7 @@ Sois concret, pratique et encourageant.
                     json=data,
                     timeout=60
                 )
-                
+
                 if response.status_code == 200:
                     response_data = response.json()
                     if 'choices' in response_data and response_data['choices']:
@@ -239,24 +258,25 @@ Sois concret, pratique et encourageant.
                         raise Exception(error_msg)
                     logger.warning(f"Tentative {attempt + 1} échouée: {error_msg}")
                     time.sleep(self.retry_delay)
-                    
+
             except requests.exceptions.RequestException as e:
                 error_msg = f"Erreur de connexion: {str(e)}"
                 if attempt == self.max_retries - 1:
                     raise Exception(error_msg)
                 logger.warning(f"Tentative {attempt + 1} échouée: {error_msg}")
                 time.sleep(self.retry_delay)
-        
+
         raise Exception("Échec de tous les appels API")
-    
-    def _structure_recommendation(self, ai_response: str, analysis: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _structure_recommendation(self, ai_response: str, analysis: Dict[str, Any], mbti_profile: Optional[str] = None) -> Dict[str, Any]:
         """
         Structure la réponse de l'IA en sections organisées.
-        
+
         Args:
             ai_response: Réponse brute de l'IA
             analysis: Analyse préliminaire
-            
+            mbti_profile: Profil MBTI optionnel
+
         Returns:
             Dict[str, Any]: Recommandation structurée
         """
@@ -267,11 +287,12 @@ Sois concret, pratique et encourageant.
             'alternative_careers': '',
             'personalized_path': '',
             'metadata': {
-                'student_profile': analysis,
+                'student_profile_analysis': analysis, # Renamed for clarity
+                'mbti_profile_provided': mbti_profile if mbti_profile and mbti_profile != "----" else None,
                 'generation_timestamp': time.time()
             }
         }
-        
+
         # Essayer de parser les sections de la réponse IA
         try:
             sections = self._parse_ai_sections(ai_response)
@@ -280,16 +301,16 @@ Sois concret, pratique et encourageant.
             logger.warning(f"Impossible de parser les sections IA: {str(e)}")
             # Si le parsing échoue, garder la réponse complète
             recommendation['analysis'] = ai_response[:500] + "..." if len(ai_response) > 500 else ai_response
-        
+
         return recommendation
-    
+
     def _parse_ai_sections(self, ai_response: str) -> Dict[str, str]:
         """
         Parse les sections de la réponse IA.
-        
+
         Args:
             ai_response: Réponse de l'IA
-            
+
         Returns:
             Dict[str, str]: Sections parsées
         """
@@ -299,7 +320,7 @@ Sois concret, pratique et encourageant.
             'alternative_careers': '',
             'personalized_path': ''
         }
-        
+
         # Patterns de recherche pour les sections
         section_patterns = {
             'analysis': ['1. ÉVALUATION DU CHOIX INITIAL', 'ÉVALUATION DU CHOIX', 'ANALYSE'],
@@ -307,16 +328,16 @@ Sois concret, pratique et encourageant.
             'alternative_careers': ['3. CARRIÈRES ALTERNATIVES', 'CARRIÈRES ALTERNATIVES', 'ALTERNATIVES'],
             'personalized_path': ['4. PARCOURS PERSONNALISÉ', 'PARCOURS PERSONNALISÉ', 'PARCOURS']
         }
-        
+
         lines = ai_response.split('\n')
         current_section = None
         current_content = []
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
+
             # Vérifier si cette ligne commence une nouvelle section
             section_found = None
             for section_key, patterns in section_patterns.items():
@@ -326,69 +347,69 @@ Sois concret, pratique et encourageant.
                         break
                 if section_found:
                     break
-            
+
             if section_found:
                 # Sauvegarder la section précédente
                 if current_section and current_content:
                     sections[current_section] = '\n'.join(current_content).strip()
-                
+
                 # Commencer la nouvelle section
                 current_section = section_found
                 current_content = []
-                
+
                 # Ajouter le contenu de la ligne actuelle (après le titre)
                 content_after_title = line
                 for pattern in section_patterns[section_found]:
                     if pattern in line.upper():
                         content_after_title = line[line.upper().find(pattern) + len(pattern):].strip()
                         break
-                
+
                 if content_after_title and content_after_title != line:
                     current_content.append(content_after_title)
             else:
                 # Ajouter à la section courante
                 if current_section:
                     current_content.append(line)
-        
+
         # Sauvegarder la dernière section
         if current_section and current_content:
             sections[current_section] = '\n'.join(current_content).strip()
-        
+
         # Si aucune section n'a été trouvée, mettre tout dans l'analyse
         if not any(sections.values()):
             sections['analysis'] = ai_response
-        
+
         return sections
-    
+
     def test_api_connection(self) -> Dict[str, Any]:
         """
         Teste la connexion à l'API DeepSeek.
-        
+
         Returns:
             Dict[str, Any]: Résultat du test
         """
         try:
             test_prompt = "Bonjour, peux-tu confirmer que tu fonctionnes correctement ? Réponds simplement 'Test réussi'."
-            
+
             response = self._call_deepseek_api(test_prompt)
-            
+
             return {
                 'success': True,
                 'message': 'Connexion API réussie',
                 'response': response[:100] + "..." if len(response) > 100 else response
             }
-            
+
         except Exception as e:
             return {
                 'success': False,
                 'message': f'Échec de la connexion API: {str(e)}',
                 'response': None
             }
-    
+
     def get_engine_stats(self) -> Dict[str, Any]:
         """
         Retourne les statistiques du moteur de recommandation.
-        
+
         Returns:
             Dict[str, Any]: Statistiques
         """
